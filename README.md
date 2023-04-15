@@ -2,15 +2,15 @@
 
 This is a machine learning course project
 
-# Data set
+## Data set
 
 [https://archive.ics.uci.edu/ml/datasets/Bank+Marketing](https://archive.ics.uci.edu/ml/datasets/Bank+Marketing)
 
-# Objective
+## Objective
 
 Predict if the client will subscribe (yes/no) a term deposit (y)
 
-# Method
+## Method
 
 Logistic regression and random forest
  
