@@ -1,0 +1,138 @@
+---
+title: "project"
+author: "Ning Hu"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r all}
+library(tidyr)
+library(ggplot2)
+library(randomForest)
+library(caret)
+library(glmnet)
+## Data exploratory
+bank = read.csv('data/bank-additional/bank-additional-full.csv', sep = ';')
+summary(bank)
+names(bank)
+
+# remove predictors
+# default a extremely unbalanced
+# duration is unknown while predicting
+remove.variable = c('default', 'duration')
+bank = bank[,!names(bank) %in% remove.variable]
+
+
+dummy.variables = c('job', 'marital', 'education', 
+                    'housing', 'loan', 'contact',
+                    'month', 'day_of_week','poutcome',
+                    'y')
+
+for(name in dummy.variables) {
+  bank[name] = as.factor(bank[[name]])
+}
+summary(bank)
+
+
+#bank.scaled = bank
+# scale all continuous predictors
+#for (name in setdiff(names(bank), dummy.variables)) {
+#  bank.scaled[name] = scale(bank.scaled[name])
+#}
+
+bank[,!(names(bank) %in% dummy.variables[1:9])] %>% 
+  gather(-y, key = 'var', value = 'value') %>%
+  ggplot(aes(x = y, y = value)) +
+  geom_boxplot(aes(fill = y)) +
+  facet_wrap(~var, scales = 'free') +
+  ylab('')+
+  ggtitle('Predictors Distribution agains Diatetes')
+
+
+# add column: if the client was last contacted from a previous campaign
+#bank$is.pcontacted = as.factor((bank$pdays == 999))
+
+# missing value only account for 8% of the whole data
+# no additaional process on missing value, treat them as a category
+miss.name = 'unknown'
+print('missing values')
+for (name in dummy.variables) {
+  print(paste(name, sum(bank[name] == miss.name), sep=':')) 
+}
+
+# total records with missing values
+sum(rowSums(bank==miss.name)>0)
+
+
+pr.curve = function(pred, y) {
+  recalls = c()
+  precisions = c()
+
+  for (threshold in seq(0, 1, by=0.01)) {
+    yhat = ifelse(pred>threshold, 'yes', 'no')
+    yhat = factor(yhat, levels = c('no', 'yes'), labels = c('no', 'yes'))
+    recalls = c(recalls, recall(yhat, y, relevant = 'yes'))
+    precisions = c(precisions, precision(yhat, y, relevant = 'yes'))
+  }
+  data.frame(recall = recalls, precision = precisions, threshold=seq(0, 1, by=0.01))
+}
+
+set.seed(5420)
+
+# separate to train and test
+train.size = 2*nrow(bank)/3
+train.rows = sample(nrow(bank), train.size)
+
+
+rf = randomForest(y~., data = bank, subset = train.rows, importance = TRUE)
+rf
+
+yhat.rf = predict(rf, newdata = bank[-train.rows,], type='prob')
+#confusionMatrix(yhat.norm, bank[-train.rows, 'y'])
+pr.rf = pr.curve(yhat.rf[,'yes'], bank[-train.rows, 'y'])
+
+pr.rf$type = 'RF'
+
+
+importance(rf)
+varImpPlot(rf)
+
+## LR stepwise
+trControl = trainControl(method = 'cv', number = 10)
+lr.step = train(y~.,
+      data = bank[train.rows,],
+      method = 'glmStepAIC',
+      family = 'binomial',
+      direction = 'backward',
+      trControl = trControl
+    )
+summary(lr.step$finalModel)
+yhat.lr.step = predict.train(lr.step,
+                       newdata = bank[-train.rows,],
+                       type="prob")
+pr.lr.step = pr.curve(yhat.lr.step[,'yes'], bank[-train.rows, 'y'])
+pr.lr.step$type = 'LR'
+
+# plot pr curve
+data = rbind(pr.rf, pr.lr.step)
+ggplot(data = data)+
+  geom_line(aes(x = recall, y=precision, col = type))+
+  ggtitle('Precision-Recall Curve')+
+  labs(color = NULL)+
+  theme(text = element_text(size = 20), 
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black")
+      )
+
+# F1 score
+data$f1 = 2*data$recall*data$precision/(data$recall+data$precision)
+ggplot(data = data)+
+  geom_line(aes(x = recall, y=f1, col=type))+
+  ggtitle('F1 Score')+
+  labs(color = NULL)+
+  theme(text = element_text(size = 20), 
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black")
+      )
+
+```
